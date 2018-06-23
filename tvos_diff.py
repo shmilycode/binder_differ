@@ -114,28 +114,6 @@ class DiffParser:
         return parsed_diff_list
 
 
-    '''
-    the @diff_context must get from header file, and only contain the function declaration
-    '''
-    def GetAppendFunction(diff_context):
-        parsed_diff_list = []
-        tmp_parsed_list = []
-        for line in context:
-            if DiffParser.IsDiff(line, True) or DiffParser.IsDiff(line, False):
-                new_line = ' ' + line[1:]
-                tmp_line = DiffParser.ClearSpaceAndTable(new_line)
-
-                if len(tmp_parsed_list) and DiffParser.IsOppositOpt((line[0], tmp_line),tmp_parsed_list[-1]):
-                    del tmp_parsed_list[-1]
-                    del parsed_diff_list[-1]
-                else:
-                    tmp_parsed_list.append((line[0], tmp_line))
-                    parsed_diff_list.append(new_line)
-
-
-                #if one is '-' and the other is '+', then remove it.
-
-        return parsed_diff_list
 
     def IsEmptyLine(line, IsSpaceJunk, IsTabJunk):
         is_empty = False
@@ -148,6 +126,10 @@ class DiffParser:
         return tmp_str == ''
 
 class FunctionParser:
+    '''
+    Get function name, include the list of parameter, 
+    like function @void start(int a, int b), return @start(int a, int b)
+    '''
     def GetFunctionName(declaration):
         #Get function name
         matchObj = re.search(r'virtual( +)(\w+?)( +)(.*?);', declaration)
@@ -161,7 +143,86 @@ class FunctionParser:
 
         return function_name
 
+    '''
+    Get function name, haven't include the list of parameter, 
+    like function @void start(int a, int b), only return @start
+    '''
+    def GetRowFunctionName(declaration):
+        #Get function name
+        matchObj = re.search(r'virtual( +)(\w+?)( +)(.*?)\(.*?\);', declaration)
+        function_name = ''
+        if matchObj:
+            function_name = matchObj.group(4)
+        else:
+            matchObj = re.search(r'(\w+?)( +)(.*?)\(.*?\);', declaration)
+            if matchObj:
+                function_name = matchObj.group(3)
 
+        return function_name
+    '''
+    From @start_pos, gain the completed definition of function, the function must start with '{'
+        and end with '}'
+    '''
+    def GetFunctionDefinition(start_pos, context):
+        bracket_count = 0
+        definition_list = []
+        for line in context[start_pos+1:]:
+            definition_list.append(line)
+            #Judge from @1, because the @0 item maybe the '+' or '-'
+            skip_pos = 0
+            if line != '' and (line[0] == '+' or line[0] == '-'):
+                skip_pos = 1
+            if DiffParser.ClearSpaceAndTable(line[skip_pos:]) == '{':
+                bracket_count =  bracket_count + 1;
+            elif DiffParser.ClearSpaceAndTable(line[skip_pos:]) == '}':
+                bracket_count = bracket_count - 1;
+                if bracket_count == 0:
+                    break;
+
+        return definition_list;
+
+    '''
+    the @diff_context must get from header file, and only contain the function declaration
+    '''
+    def GetAppendFunction(context):
+        parsed_diff_list = []
+        tmp_parsed_list = []
+        for line in context:
+            if DiffParser.IsDiff(line, True) or DiffParser.IsDiff(line, False):
+                new_line = ' ' + line[1:]
+                function_name = FunctionParser.GetRowFunctionName(line)
+                tmp_line = DiffParser.ClearSpaceAndTable(function_name)
+
+                if len(tmp_parsed_list) and DiffParser.IsOppositOpt((line[0], tmp_line),tmp_parsed_list[-1]):
+                    del tmp_parsed_list[-1]
+                    del parsed_diff_list[-1]
+                else:
+                    tmp_parsed_list.append((line[0], tmp_line))
+                    parsed_diff_list.append(new_line)
+
+        return parsed_diff_list
+
+    def GetAppendEnum(context):
+        parsed_diff_list = []
+        tmp_parsed_list = []
+        for line in context:
+            if DiffParser.IsDiff(line, True) or DiffParser.IsDiff(line, False):
+                new_line = ' ' + line[1:]
+                tmp_line = DiffParser.ClearSpaceAndTable(new_line)
+                if tmp_line[-1] == ',':
+                    tmp_line = tmp_line[:-1]
+
+                if len(tmp_parsed_list) and DiffParser.IsOppositOpt((line[0], tmp_line),tmp_parsed_list[-1]):
+                    del tmp_parsed_list[-1]
+                    del parsed_diff_list[-1]
+                else:
+                    tmp_parsed_list.append((line[0], tmp_line))
+                    parsed_diff_list.append(new_line)
+
+
+                #if one is '-' and the other is '+', then remove it.
+
+        return parsed_diff_list
 class LibBaseParser:
     row_path = ''
     new_path = ''
@@ -195,40 +256,111 @@ class LibBaseParser:
     def GetDiffParser(self):
         return self.diff_parser;
 
+    def GetHeaderPath(self, libname_prefix, libname_suffix, filename_prefix, filename_suffix):
+        libmanager_name = libname_prefix + self.GetFolderName() + libname_suffix;
+        row_libmanager_path = self.GetRowPath() + '/../include/' + libmanager_name
+        new_libmanager_path = self.GetNewPath() + '/../include/' + libmanager_name
+        row_libmanager_file = ''
+        new_libmanager_file = ''
+
+        if os.path.isdir(row_libmanager_path) and os.path.isdir(new_libmanager_path):
+            libmanager_file_name = filename_prefix + self.GetLibraryName().title() + 'Manager' + filename_suffix;
+            row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
+            new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
+            if os.path.isfile(row_libmanager_file) == False and os.path.isfile(new_libmanager_file) == False:
+                libmanager_file_name = filename_prefix + self.GetLibraryName().title() + 'Impl' + filename_suffix;
+                row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
+                new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
+        else:
+            print("%s or %s is not a DIR" % (row_libmanager_path, new_libmanager_path))
+
+        return  row_libmanager_file,new_libmanager_file
+
+    def GetSourcePath(self, libname_prefix, libname_suffix, filename_prefix, filename_suffix):
+
+        libmanager_name = libname_prefix+self.GetFolderName() + libname_suffix;
+        row_libmanager_path = self.GetRowPath() + '/' + libmanager_name
+        new_libmanager_path = self.GetNewPath() + '/' + libmanager_name
+        
+        result = []
+        if os.path.isdir(row_libmanager_path) and os.path.isdir(new_libmanager_path):
+            libmanager_file_name = filename_prefix + self.GetLibraryName().title() + 'Manager' + filename_suffix;
+            row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
+            new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
+            if os.path.isfile(row_libmanager_file) == False and os.path.isfile(new_libmanager_file) == False:
+                libmanager_file_name = filename_prefix + self.GetLibraryName().title() + 'Impl' + filename_suffix
+                row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
+                new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
+
+        return  row_libmanager_file,new_libmanager_file
+
 class LibManagerParser(LibBaseParser):
 
     def __init__(self, row_path, new_path):
         super().__init__(row_path, new_path)
 
-    def CreateDiffContext(self):
-        libmanager_name = 'lib'+super().GetFolderName();
-        row_libmanager_path = super().GetRowPath() + '/' + libmanager_name
-        new_libmanager_path = super().GetNewPath() + '/' + libmanager_name
-        
+    def CreateHeaderDiffContext(self):
+        row_libmanager_file,new_libmanager_file = super().GetHeaderPath('', '', '', '.h')
         result = []
-        if os.path.isdir(row_libmanager_path) and os.path.isdir(new_libmanager_path):
-            libmanager_file_name = super().GetLibraryName().title() + 'Manager.cpp'
-            row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
-            new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
-            if os.path.isfile(row_libmanager_file) == False and os.path.isfile(new_libmanager_file) == False:
-                libmanager_file_name = super().GetLibraryName().title() + 'Impl.cpp'
-                row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
-                new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
+        if os.path.isfile(row_libmanager_file) and os.path.isfile(new_libmanager_file):
+            with open (row_libmanager_file,'r') as f1:
+                with open (new_libmanager_file,'r') as f2:
+                    f1_context = f1.read().splitlines()
+                    f2_context = f2.read().splitlines()
+                    diff_context = super().GetDiffParser().CompareFile(f1_context, f2_context)
+                    diff_context = super().GetDiffParser().GetDiffContext(diff_context)
+                    result = FunctionParser.GetAppendFunction(diff_context)
+        else:
+            print("%s or %s is not a file!" % (file1, file2));
 
-            if os.path.isfile(row_libmanager_file) and os.path.isfile(new_libmanager_file):
-                with open (row_libmanager_file,'r') as f1:
-                    with open (new_libmanager_file,'r') as f2:
-                        f1_context = f1.read().splitlines()
-                        f2_context = f2.read().splitlines()
-                        diff_context = super().GetDiffParser().CompareFile(f1_context, f2_context)
-                        #just get the whold diff and save it
-                        diff_context = super().GetDiffParser().GetDiffContext(diff_context)
-                        result = super().GetDiffParser().ParseDiffContext(diff_context)
-            else:
-                print("%s or %s is not a file!" % (file1, file2));
 
         return result
-        
+
+    def CreateSourceDiffContext(self, declaration_list):
+        row_libmanager_file,new_libmanager_file = super().GetSourcePath('lib', '', '', '.cpp')
+        result = []
+        if os.path.isfile(row_libmanager_file) and os.path.isfile(new_libmanager_file):
+            with open (row_libmanager_file,'r') as f1:
+                with open (new_libmanager_file,'r') as f2:
+                    f1_context = f1.read().splitlines()
+                    f2_context = f2.read().splitlines()
+                    diff_context = super().GetDiffParser().CompareFile(f1_context, f2_context)
+                    #just get the whold diff and save it
+                    result = self.GetExtendHeader(diff_context)
+                    result.extend(self.GetFunctionDefintion(f2_context, declaration_list, '::'))
+        else:
+            print("%s or %s is not a file!" % (row_libmanager_file, new_libmanager_file));
+        return result
+
+    def GetExtendHeader(self, diff_context):
+        result = []
+        diff_context = DiffParser.GetDiffContext(diff_context)
+        diff_context = DiffParser.ParseDiffContext(diff_context)
+        for line in diff_context:
+            if line.find('#include') != -1:
+                line = line.strip()
+                result.append(line)
+
+        return result
+
+    def GetFunctionDefintion(self, context, declaration_list, function_name_prefix):
+        definitions_list = []
+        for declaration in declaration_list:
+            #print(declaration)
+            #Get function name
+            function_name = FunctionParser.GetFunctionName(declaration)
+            if function_name != '':
+                function_name = DiffParser.ClearSpaceAndTable(function_name)
+                for line in context:
+                    tmp_line = DiffParser.ClearSpaceAndTable(line)
+                    if tmp_line.find(function_name_prefix+function_name) != -1:
+                        definition = [line, ]
+                        definition.extend(FunctionParser.GetFunctionDefinition(context.index(line), context))
+                        definitions_list.extend(definition)
+
+        return definitions_list
+
+
 class ILibManagerParser(LibBaseParser):
 
     def __init__(self, row_path, new_path):
@@ -263,28 +395,11 @@ class ILibManagerParser(LibBaseParser):
     def CreateEnumDiffContext(self, enum_list):
         result = []
         result = super().GetDiffParser().GetDiffContext(enum_list)
-        result = super().GetDiffParser().ParseDiffContext(result)
+        result = FunctionParser.GetAppendEnum(result)
 
         return result
 
-    '''
-    From @start_pos, gain the completed definition of function, the function must start with '{'
-        and end with '}'
-    '''
-    def GetFunctionDefinition(self, start_pos, context):
-        bracket_count = 0
-        definition_list = []
-        for line in context[start_pos+1:]:
-            definition_list.append(line)
-            #Judge from @1, because the @0 item maybe the '+' or '-'
-            if DiffParser.ClearSpaceAndTable(line[1:]) == '{':
-                bracket_count =  bracket_count + 1;
-            elif DiffParser.ClearSpaceAndTable(line[1:]) == '}':
-                bracket_count = bracket_count - 1;
-                if bracket_count == 0:
-                    break;
 
-        return definition_list;
 
     '''
     According the declaration, get the definition of functions
@@ -293,23 +408,14 @@ class ILibManagerParser(LibBaseParser):
         definitions_list = []
         for declaration in declaration_list:
             #Get function name
-            matchObj = re.search(r'virtual( +)(\w+?)( +)(.*?);', declaration)
-            function_name = ''
-            if matchObj:
-                function_name = matchObj.group(4)
-            else:
-                matchObj = re.search(r'(\w+?)( +)(.*?);', declaration)
-                if matchObj:
-                    function_name = matchObj.group(3)
-
-            print("function_name = " + function_name)
+            function_name = FunctionParser.GetFunctionName(declaration)
             if function_name != '':
                 function_name = DiffParser.ClearSpaceAndTable(function_name)
                 for line in context:
                     tmp_line = DiffParser.ClearSpaceAndTable(line)
                     if tmp_line.find(function_name) != -1:
                         definition = [declaration[4 : len(declaration)-1], ]
-                        definition.extend(self.GetFunctionDefinition(context.index(line), context))
+                        definition.extend(FunctionParser.GetFunctionDefinition(context.index(line), context))
                         definitions_list.extend(definition)
 
         #replace all the '+' and '-' in the defintion
@@ -330,7 +436,7 @@ class ILibManagerParser(LibBaseParser):
         if declaration_start != -1 and declaration_end != -1:
             declaration_list = function_list[declaration_start : declaration_end]
         declaration_list = super().GetDiffParser().GetDiffContext(declaration_list)
-        declaration_list = super().GetDiffParser().ParseDiffContext(declaration_list)
+        declaration_list = FunctionParser.GetAppendFunction(declaration_list)
         #print('\n'.join(declaration_list))
         definition_start, definition_end = self.GetRange(function_list, 'class', '::onTransact')
         result = self.GetDiffDefinition(declaration_list, function_list[declaration_end:definition_end])
@@ -411,43 +517,35 @@ class ILibManagerParser(LibBaseParser):
         
         return enum_result, function_result, case_result
 
-    def CreateDiffContext(self):
-        libmanager_name = 'lib'+super().GetFolderName();
-        row_libmanager_path = super().GetRowPath() + '/' + libmanager_name
-        new_libmanager_path = super().GetNewPath() + '/' + libmanager_name
+    def CreateHeaderDiffContext(self):
+        row_libmanager_file,new_libmanager_file = super().GetHeaderPath('', '', 'I', '.h')
 
-        if os.path.isdir(row_libmanager_path) and os.path.isdir(new_libmanager_path):
-            libmanager_file_name = 'I' + super().GetLibraryName().title() + 'Manager.cpp'
-            row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
-            new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
-            if os.path.isfile(row_libmanager_file) != True or os.path.isfile(new_libmanager_file) != True:
-                libmanager_file_name = 'I' + super().GetLibraryName().title() + 'Impl.cpp'
-                row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
-                new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
+        if os.path.isfile(row_libmanager_file) and os.path.isfile(new_libmanager_file):
+            with open (row_libmanager_file,'r') as f1:
+                with open (new_libmanager_file,'r') as f2:
+                    f1_context = f1.read().splitlines()
+                    f2_context = f2.read().splitlines()
+                    diff_context = super().GetDiffParser().CompareFile(f1_context, f2_context)
+                    diff_context = super().GetDiffParser().GetDiffContext(diff_context)
+                    result = FunctionParser.GetAppendFunction(diff_context)
+        else:
+            print("%s or %s is not a file!" % (file1, file2));
 
-            enum_result, function_result, case_result = self.ParseDiffContext(row_libmanager_file, new_libmanager_file)
+        return result
 
+    def CreateSourceDiffContext(self):
+        row_libmanager_file,new_libmanager_file = super().GetSourcePath('lib', '', 'I', '.cpp')
 
+        enum_result, function_result, case_result = self.ParseDiffContext(row_libmanager_file, new_libmanager_file)
         return enum_result, function_result, case_result
 
 class ILibManagerClientParser(ILibManagerParser):
     def __init__(self, row_path, new_path):
         super().__init__(row_path, new_path)
 
-    def CreateDiffContext(self):
-        libmanager_name = 'lib'+super().GetFolderName();
-        row_libmanager_path = super().GetRowPath() + '/' + libmanager_name
-        new_libmanager_path = super().GetNewPath() + '/' + libmanager_name
-
-        if os.path.isdir(row_libmanager_path) and os.path.isdir(new_libmanager_path):
-            libmanager_file_name = 'I' + super().GetLibraryName().title() + 'ManagerClient.cpp'
-            row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
-            new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
-            if os.path.isfile(row_libmanager_file) != True or os.path.isfile(new_libmanager_file) != True:
-                libmanager_file_name = 'I' + super().GetLibraryName().title() + 'ImplClient.cpp'
-                row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
-                new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
-            enum_result, function_result, case_result = super().ParseDiffContext(row_libmanager_file, new_libmanager_file)
+    def CreateSourceDiffContext(self):
+        row_libmanager_file,new_libmanager_file = super().GetSourcePath('lib', '', 'I', 'Client.cpp')
+        enum_result, function_result, case_result = super().ParseDiffContext(row_libmanager_file, new_libmanager_file)
 
         return enum_result, function_result, case_result
 
@@ -456,56 +554,66 @@ class LibManagerServiceParser(LibManagerParser):
         super().__init__(row_path, new_path)
 
     def CreateHeaderDiffContext(self):
-        libmanager_name = 'lib'+super().GetFolderName() + 'service';
-        row_libmanager_path = super().GetRowPath() + '/' + libmanager_name
-        new_libmanager_path = super().GetNewPath() + '/' + libmanager_name
-        
-        result = []
-        if os.path.isdir(row_libmanager_path) and os.path.isdir(new_libmanager_path):
-            libmanager_file_name = super().GetLibraryName().title() + 'ManagerService.h'
-            row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
-            new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
-            if os.path.isfile(row_libmanager_file) == False and os.path.isfile(new_libmanager_file) == False:
-                libmanager_file_name = super().GetLibraryName().title() + 'ImplService.cpp'
-                row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
-                new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
-
-            if os.path.isfile(row_libmanager_file) and os.path.isfile(new_libmanager_file):
-                with open (row_libmanager_file,'r') as f1:
-                    with open (new_libmanager_file,'r') as f2:
-                        f1_context = f1.read().splitlines()
-                        f2_context = f2.read().splitlines()
-                        diff_context = super().GetDiffParser().CompareFile(f1_context, f2_context)
-                        #just get the whold diff and save it
-                        diff_context = super().GetDiffParser().GetDiffContext(diff_context)
-                        result = DiffParser.GetAppendFunction(diff_context)
-                        result = super().GetDiffParser().ParseDiffContext(diff_context)
-            else:
-                print("%s or %s is not a file!" % (file1, file2));
+        row_libmanager_file,new_libmanager_file = super().GetSourcePath('lib', 'service', '', 'Service.h')
+        if os.path.isfile(row_libmanager_file) and os.path.isfile(new_libmanager_file):
+            with open (row_libmanager_file,'r') as f1:
+                with open (new_libmanager_file,'r') as f2:
+                    f1_context = f1.read().splitlines()
+                    f2_context = f2.read().splitlines()
+                    diff_context = super().GetDiffParser().CompareFile(f1_context, f2_context)
+                    #just get the whold diff and save it
+                    diff_context = super().GetDiffParser().GetDiffContext(diff_context)
+                    result = FunctionParser.GetAppendFunction(diff_context)
+        else:
+            print("%s or %s is not a file!" % (row_libmanager_file, new_libmanager_file));
 
         return result   
-        return
 
-    def CreateSourceDiffContext(self):
-        return
+
+    def CreateSourceDiffContext(self, declaration_list):
+        row_libmanager_file,new_libmanager_file = super().GetSourcePath('lib', 'service', '', 'Service.cpp')
+
+        if os.path.isfile(row_libmanager_file) and os.path.isfile(new_libmanager_file):
+            with open (row_libmanager_file,'r') as f1:
+                with open (new_libmanager_file,'r') as f2:
+                    f1_context = f1.read().splitlines()
+                    f2_context = f2.read().splitlines()
+                    diff_context = DiffParser.CompareFile(f1_context, f2_context)
+                    result = super().GetExtendHeader(diff_context)
+                    result.extend(super().GetFunctionDefintion(f2_context, declaration_list, '::Client::'))
+        else:
+            print("%s or %s is not a file!" % (file1, file2));
+
+        return result   
 
 def LibManagerTest(row_path, new_path):
     libmanager_parser = LibManagerParser(argv.row_file, argv.new_file)
-    print('\n'.join(libmanager_parser.CreateDiffContext()))
+    header_list = libmanager_parser.CreateHeaderDiffContext()
+    print('\n'.join(header_list))
+    print('\n'.join(libmanager_parser.CreateSourceDiffContext(header_list)))
 
 def ILibManagerTest(row_path, new_path):
     Ilibmanager_parser = ILibManagerParser(row_path, new_path)
-    enum_result, function_result, case_result = Ilibmanager_parser.CreateDiffContext()
+    enum_result, function_result, case_result = Ilibmanager_parser.CreateSourceDiffContext()
+    header_context = Ilibmanager_parser.CreateHeaderDiffContext()
+    print('\n'.join(enum_result))
+    print('\n'.join(function_result))
+    print('\n'.join(case_result))
+    print('\n'.join(header_context))
+
+def ILibManagerClientTest(row_path, new_path):
+    Ilibmanager_parser = ILibManagerClientParser(row_path, new_path)
+    enum_result, function_result, case_result = Ilibmanager_parser.CreateSourceDiffContext()
     print('\n'.join(enum_result))
     print('\n'.join(function_result))
     print('\n'.join(case_result))
 
-def ILibManagerClientTest(row_path, new_path):
-    Ilibmanager_parser = ILibManagerClientParser(row_path, new_path)
-    enum_result, function_result, case_result = Ilibmanager_parser.CreateDiffContext()
-    print('\n'.join(enum_result))
-    print('\n'.join(function_result))
-    print('\n'.join(case_result))
+def LibManagerServcieTest(row_path, new_path):
+    libmanager_parser = LibManagerServiceParser(row_path, new_path)
+    header_function = libmanager_parser.CreateHeaderDiffContext()
+    source_function = libmanager_parser.CreateSourceDiffContext(header_function)
+    print('\n'.join(header_function))
+    print('\n'.join(source_function))
 
 if __name__ == '__main__':
     parse = argparse.ArgumentParser(description='manual to this script')
@@ -520,3 +628,5 @@ if __name__ == '__main__':
         ILibManagerTest(argv.row_file, argv.new_file)
     elif argv.test == '3':
         ILibManagerClientTest(argv.row_file, argv.new_file)
+    elif argv.test == '4':
+        LibManagerServcieTest(argv.row_file, argv.new_file)
