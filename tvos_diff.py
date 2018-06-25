@@ -209,7 +209,7 @@ class FunctionParser:
             if DiffParser.IsDiff(line, True) or DiffParser.IsDiff(line, False):
                 new_line = ' ' + line[1:]
                 tmp_line = DiffParser.ClearSpaceAndTable(new_line)
-                if tmp_line[-1] == ',':
+                if tmp_line != '' and tmp_line[-1] == ',':
                     tmp_line = tmp_line[:-1]
 
                 if len(tmp_parsed_list) and DiffParser.IsOppositOpt((line[0], tmp_line),tmp_parsed_list[-1]):
@@ -234,11 +234,12 @@ class LibBaseParser:
         self.new_path = new_path
         folder_split = row_path.split('/')
         self.folder_name = folder_split[-1];
-        manager_idx = self.folder_name.find('manager')
-        impl_idx = self.folder_name.find('impl')
-        if manager_idx != -1:
+        manager_idx = self.folder_name.endswith('manager')
+        if self.folder_name.endswith('manager'):
+            manager_idx = self.folder_name.find('manager')
             self.library_name = self.folder_name[0:manager_idx]
-        elif impl_idx != -1:
+        elif self.folder_name.endswith('impl'):
+            impl_idx = self.folder_name.find('impl')
             self.library_name = self.folder_name[0:impl_idx]
 
     def GetFolderName(self):
@@ -256,6 +257,15 @@ class LibBaseParser:
     def GetDiffParser(self):
         return self.diff_parser;
 
+    def GetRealFileName(self, path, file_name):
+        file_list = os.listdir(path)
+        file_name = file_name.lower()
+        for sub_file_name in file_list:
+            tmp_sub_file_name = sub_file_name.lower()
+            if file_name == tmp_sub_file_name:
+                return sub_file_name
+        return file_name
+
     def GetHeaderPath(self, libname_prefix, libname_suffix, filename_prefix, filename_suffix):
         libmanager_name = libname_prefix + self.GetFolderName() + libname_suffix;
         row_libmanager_path = self.GetRowPath() + '/../include/' + libmanager_name
@@ -265,10 +275,14 @@ class LibBaseParser:
 
         if os.path.isdir(row_libmanager_path) and os.path.isdir(new_libmanager_path):
             libmanager_file_name = filename_prefix + self.GetLibraryName().title() + 'Manager' + filename_suffix;
+            libmanager_file_name = self.GetRealFileName(new_libmanager_path, libmanager_file_name)
+
             row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
             new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
             if os.path.isfile(row_libmanager_file) == False and os.path.isfile(new_libmanager_file) == False:
                 libmanager_file_name = filename_prefix + self.GetLibraryName().title() + 'Impl' + filename_suffix;
+                libmanager_file_name = self.GetRealFileName(new_libmanager_path, libmanager_file_name)
+
                 row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
                 new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
         else:
@@ -277,18 +291,23 @@ class LibBaseParser:
         return  row_libmanager_file,new_libmanager_file
 
     def GetSourcePath(self, libname_prefix, libname_suffix, filename_prefix, filename_suffix):
-
+        row_libmanager_file = ''
+        new_libmanager_file = ''
         libmanager_name = libname_prefix+self.GetFolderName() + libname_suffix;
         row_libmanager_path = self.GetRowPath() + '/' + libmanager_name
         new_libmanager_path = self.GetNewPath() + '/' + libmanager_name
-        
-        result = []
+        #print(row_libmanager_path)
+        #print(new_libmanager_path)
         if os.path.isdir(row_libmanager_path) and os.path.isdir(new_libmanager_path):
             libmanager_file_name = filename_prefix + self.GetLibraryName().title() + 'Manager' + filename_suffix;
+            libmanager_file_name = self.GetRealFileName(new_libmanager_path, libmanager_file_name)
+
             row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
             new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
             if os.path.isfile(row_libmanager_file) == False and os.path.isfile(new_libmanager_file) == False:
                 libmanager_file_name = filename_prefix + self.GetLibraryName().title() + 'Impl' + filename_suffix
+                libmanager_file_name = self.GetRealFileName(new_libmanager_path, libmanager_file_name)
+
                 row_libmanager_file = row_libmanager_path + '/' + libmanager_file_name;
                 new_libmanager_file = new_libmanager_path + '/' + libmanager_file_name;
 
@@ -303,15 +322,15 @@ class LibManagerParser(LibBaseParser):
         row_libmanager_file,new_libmanager_file = super().GetHeaderPath('', '', '', '.h')
         result = []
         if os.path.isfile(row_libmanager_file) and os.path.isfile(new_libmanager_file):
-            with open (row_libmanager_file,'r') as f1:
-                with open (new_libmanager_file,'r') as f2:
+            with open (row_libmanager_file,'r',encoding='ISO-8859-15') as f1:
+                with open (new_libmanager_file,'r',encoding='ISO-8859-15') as f2:
                     f1_context = f1.read().splitlines()
                     f2_context = f2.read().splitlines()
                     diff_context = super().GetDiffParser().CompareFile(f1_context, f2_context)
                     diff_context = super().GetDiffParser().GetDiffContext(diff_context)
                     result = FunctionParser.GetAppendFunction(diff_context)
         else:
-            print("%s or %s is not a file!" % (file1, file2));
+            print("%s or %s is not a file!" % (row_libmanager_file, new_libmanager_file));
 
 
         return result
@@ -472,7 +491,7 @@ class ILibManagerParser(LibBaseParser):
         result = []
         for enum_def in enum_context:
             enum_def = DiffParser.ClearSpaceAndTable(enum_def)
-            if enum_def[-1] == ',':
+            if enum_def != '' and enum_def[-1] == ',':
                 enum_def = enum_def[0 : -1]
             result.extend(self.GetCaseImplement(transact_context, enum_def))
 
@@ -513,11 +532,12 @@ class ILibManagerParser(LibBaseParser):
                     #third, get the 'case' implement.
                     case_result = self.CreateCaseDiffContext(diff_context, enum_result)
         else:
-                print("%s or %s is not a file!" % (file1, file2));
+                print("%s or %s is not a file!" % (row_libmanager_file, new_libmanager_file));
         
         return enum_result, function_result, case_result
 
     def CreateHeaderDiffContext(self):
+        result = []
         row_libmanager_file,new_libmanager_file = super().GetHeaderPath('', '', 'I', '.h')
 
         if os.path.isfile(row_libmanager_file) and os.path.isfile(new_libmanager_file):
@@ -529,7 +549,7 @@ class ILibManagerParser(LibBaseParser):
                     diff_context = super().GetDiffParser().GetDiffContext(diff_context)
                     result = FunctionParser.GetAppendFunction(diff_context)
         else:
-            print("%s or %s is not a file!" % (file1, file2));
+            print("%s or %s is not a file!" % (row_libmanager_file, new_libmanager_file));
 
         return result
 
@@ -544,6 +564,9 @@ class ILibManagerClientParser(ILibManagerParser):
         super().__init__(row_path, new_path)
 
     def CreateSourceDiffContext(self):
+        enum_result = []
+        function_result = []
+        case_result = []
         row_libmanager_file,new_libmanager_file = super().GetSourcePath('lib', '', 'I', 'Client.cpp')
         enum_result, function_result, case_result = super().ParseDiffContext(row_libmanager_file, new_libmanager_file)
 
@@ -554,6 +577,7 @@ class LibManagerServiceParser(LibManagerParser):
         super().__init__(row_path, new_path)
 
     def CreateHeaderDiffContext(self):
+        result = []
         row_libmanager_file,new_libmanager_file = super().GetSourcePath('lib', 'service', '', 'Service.h')
         if os.path.isfile(row_libmanager_file) and os.path.isfile(new_libmanager_file):
             with open (row_libmanager_file,'r') as f1:
@@ -571,6 +595,7 @@ class LibManagerServiceParser(LibManagerParser):
 
 
     def CreateSourceDiffContext(self, declaration_list):
+        result = []
         row_libmanager_file,new_libmanager_file = super().GetSourcePath('lib', 'service', '', 'Service.cpp')
 
         if os.path.isfile(row_libmanager_file) and os.path.isfile(new_libmanager_file):
@@ -582,7 +607,7 @@ class LibManagerServiceParser(LibManagerParser):
                     result = super().GetExtendHeader(diff_context)
                     result.extend(super().GetFunctionDefintion(f2_context, declaration_list, '::Client::'))
         else:
-            print("%s or %s is not a file!" % (file1, file2));
+            print("%s or %s is not a file!" % (row_libmanager_file, new_libmanager_file));
 
         return result   
 
@@ -608,12 +633,121 @@ def ILibManagerClientTest(row_path, new_path):
     print('\n'.join(function_result))
     print('\n'.join(case_result))
 
+
+def ConstructExtendLibManagerHeader(row_path, new_path):
+    if os.isdir(row_path) or os.isdir(new_path):
+        return
+    else:
+        print("ConstructExtendLibManagerHeader: %s or %s is not directory!" % (row_path, new_path));
+
+    libmanager_parser = LibManagerParser(row_path, new_path)
+    header_list = libmanager_parser.CreateHeaderDiffContext()
+    definition_list = libmanager_parser.CreateSourceDiffContext(header_list)
+
+
 def LibManagerServcieTest(row_path, new_path):
     libmanager_parser = LibManagerServiceParser(row_path, new_path)
     header_function = libmanager_parser.CreateHeaderDiffContext()
     source_function = libmanager_parser.CreateSourceDiffContext(header_function)
     print('\n'.join(header_function))
     print('\n'.join(source_function))
+
+class TvosParser:
+    def ParseLibManager(row_path, new_path):
+        #parse libmanager
+        libmanager_parser = LibManagerParser(row_path, new_path)
+        header_list = libmanager_parser.CreateHeaderDiffContext()
+        definition_list = libmanager_parser.CreateSourceDiffContext(header_list)
+        row_libmanager_file,new_libmanager_header_file = libmanager_parser.GetHeaderPath('', '', 'CVT', 'Declaration.h')
+        if header_list:
+            with open(new_libmanager_header_file, 'w') as new_libmanager_header:
+                new_libmanager_header.write('\n'.join(header_list))
+
+        row_libmanager_file,new_libmanager_definition_file = libmanager_parser.GetHeaderPath('', '', 'CVT', 'Definition.h')
+        if definition_list:
+            with open(new_libmanager_definition_file, 'w') as new_libmanager_definition:
+                new_libmanager_definition.write('\n'.join(definition_list))
+
+    def ParseILibManager(row_path, new_path):
+        #parse libmanager
+        Ilibmanager_parser = ILibManagerParser(row_path, new_path)
+        enum_result, function_result, case_result = Ilibmanager_parser.CreateSourceDiffContext()
+        header_context = Ilibmanager_parser.CreateHeaderDiffContext()
+
+        row_libmanager_file,new_enum_file = Ilibmanager_parser.GetHeaderPath('', '', 'CVTI', 'Enum.h')
+        if enum_result:
+            with open(new_enum_file, 'w') as new_enum_header:
+                new_enum_header.write('\n'.join(enum_result))
+
+        row_libmanager_file,new_function_definition_file = Ilibmanager_parser.GetHeaderPath('', '', 'CVTI', 'Function.h')
+        if function_result:
+            with open(new_function_definition_file, 'w') as function_definition_file:
+                function_definition_file.write('\n'.join(function_result))
+
+        row_libmanager_file,new_case_file = Ilibmanager_parser.GetHeaderPath('', '', 'CVTI', 'Case.h')
+        if case_result:
+            with open(new_case_file, 'w') as case_file:
+                case_file.write('\n'.join(case_result))
+
+        row_libmanager_file,new_libmanager_include_file = Ilibmanager_parser.GetHeaderPath('', '', 'CVTI', '.h')
+        if header_context:
+            with open(new_libmanager_include_file, 'w') as libmanager_include_file:
+                libmanager_include_file.write('\n'.join(header_context))
+
+    def ParseILibManagerClient(row_path, new_path):
+        #parse libmanager
+        libmanager_client_parser = ILibManagerClientParser(row_path, new_path)
+        enum_result, function_result, case_result = libmanager_client_parser.CreateSourceDiffContext()
+
+        row_libmanager_file,new_enum_file = libmanager_client_parser.GetHeaderPath('', '', 'CVTI', 'ClientEnum.h')
+        if enum_result:
+            with open(new_enum_file, 'w') as new_enum_header:
+                new_enum_header.write('\n'.join(enum_result))
+
+        row_libmanager_file,new_function_definition_file = libmanager_client_parser.GetHeaderPath('', '', 'CVTI', 'ClientFunction.h')
+        if function_result:
+            with open(new_function_definition_file, 'w') as function_definition_file:
+                function_definition_file.write('\n'.join(function_result))
+
+        row_libmanager_file,new_case_file = libmanager_client_parser.GetHeaderPath('', '', 'CVTI', 'ClientCase.h')
+        if case_result:
+            with open(new_case_file, 'w') as case_file:
+                case_file.write('\n'.join(case_result))
+
+    def ParseLibManagerService(row_path, new_path):
+        libmanager_parser = LibManagerServiceParser(row_path, new_path)
+        header_list = libmanager_parser.CreateHeaderDiffContext()
+        definition_list = libmanager_parser.CreateSourceDiffContext(header_list)
+
+        row_libmanager_file,new_libmanager_header_file = libmanager_parser.GetSourcePath('lib', '', 'CVT', 'ServiceDeclaration.h')
+        if header_list:
+            with open(new_libmanager_header_file, 'w') as new_libmanager_header:
+                new_libmanager_header.write('\n'.join(header_list))
+
+        row_libmanager_file,new_libmanager_definition_file = libmanager_parser.GetSourcePath('lib', '', 'CVT', 'ServiceDefinition.h')
+        if definition_list:
+            with open(new_libmanager_definition_file, 'w') as new_libmanager_definition:
+                new_libmanager_definition.write('\n'.join(definition_list))
+
+def ParseTvosLibrary(row_path, new_path):
+    TvosParser.ParseLibManager(row_path, new_path)
+    TvosParser.ParseILibManager(row_path, new_path)
+    TvosParser.ParseILibManagerClient(row_path, new_path)
+    TvosParser.ParseLibManagerService(row_path, new_path)
+
+def TravelAllFolders(row_tvos_file, new_tvos_file):
+    folders = os.listdir(row_tvos_file)
+    for sub_folder in folders:
+        if(sub_folder == 'include'):
+            continue
+        row_folder_path = row_tvos_file + '/' + sub_folder
+        new_folder_path = new_tvos_file + '/' + sub_folder
+        print("Parsing %s" % sub_folder)
+        if os.path.isdir(row_folder_path) and os.path.isdir(new_folder_path):
+            ParseTvosLibrary(row_folder_path, new_folder_path)
+        else:
+            print("%s or %s is not a path!!!" % (row_folder_path, new_folder_path))
+
 
 if __name__ == '__main__':
     parse = argparse.ArgumentParser(description='manual to this script')
@@ -630,3 +764,5 @@ if __name__ == '__main__':
         ILibManagerClientTest(argv.row_file, argv.new_file)
     elif argv.test == '4':
         LibManagerServcieTest(argv.row_file, argv.new_file)
+    elif argv.test == '0':
+        TravelAllFolders(argv.row_file, argv.new_file)
